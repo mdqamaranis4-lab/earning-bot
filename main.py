@@ -30,7 +30,7 @@ def keep_alive():
 # ================= CONFIG =================
 TOKEN = "8339268119:AAF7Kdn8kn2FlPh3QuukJhwA_pecTUCsZTc"
 SUPPORT_USERNAME = "eraxayann"
-ADMIN_ID = 123456789  # ⚠️ APNA TELEGRAM ID DALNA
+ADMIN_ID = 7499239556  # ✅ FIXED
 
 CHANNELS = [
     "https://t.me/+4phcd5DiWUBkMmY1",
@@ -194,7 +194,7 @@ async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Invalid gift code.")
 
-# ================= STATS (ADMIN) =================
+# ================= STATS =================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
