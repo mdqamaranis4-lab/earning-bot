@@ -28,10 +28,14 @@ def keep_alive():
 
 # ===== CONFIGURATION =====
 TOKEN = "8339268119:AAF7Kdn8kn2FlPh3QuukJhwA_pecTUCsZTc"
+
+SUPPORT_USERNAME = "eraxayann"
+
 CHANNELS = [
     "https://t.me/+4phcd5DiWUBkMmY1",
     "https://t.me/rajaluckera7x",
 ]
+
 GIFT_CODES = {
     "FREE3": 3,
     "WELCOME3": 3,
@@ -52,12 +56,12 @@ CREATE TABLE IF NOT EXISTS users (
 cursor.execute("CREATE TABLE IF NOT EXISTS gift_used (user_id INTEGER, code TEXT)")
 conn.commit()
 
-# ================= KEYBOARD (IMAGE STYLE) =================
+# ================= KEYBOARD =================
 def main_menu_keyboard():
     keyboard = [
         ["🎉 Gift Code", "🎁 Balance"],
         ["👫 Refer & Earn", "🚀 Withdraw"],
-        ["Payout Method 🏦", "💰 Bet & Earn"],
+        ["Payout Method 🏦", "📞 Support"],
         ["💸 Earn More 💸"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -91,8 +95,18 @@ async def claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     cursor.execute("UPDATE users SET balance = balance + 2 WHERE user_id=?", (user_id,))
     conn.commit()
-    await query.message.reply_text("✅ Claim successful! Bonus ₹2 added.", reply_markup=main_menu_keyboard())
+    await query.message.reply_text(
+        "✅ Claim successful! Bonus ₹2 added.",
+        reply_markup=main_menu_keyboard()
+    )
 
+# ================= SUPPORT COMMAND =================
+async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"📞 Need help?\nContact support:\nhttps://t.me/{SUPPORT_USERNAME}"
+    )
+
+# ================= MESSAGE HANDLER =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
@@ -102,7 +116,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("UPDATE users SET payout_info=? WHERE user_id=?", (text, user_id))
         conn.commit()
         context.user_data['waiting_for'] = None
-        await update.message.reply_text("✅ Aapka upi successfully submitted ho gya hai", reply_markup=main_menu_keyboard())
+        await update.message.reply_text(
+            "✅ Aapka UPI successfully submit ho gaya hai",
+            reply_markup=main_menu_keyboard()
+        )
         return
 
     # Menu Buttons logic
@@ -110,7 +127,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
         bal = cursor.fetchone()[0]
         await update.message.reply_text(f"💰 Your balance: ₹{bal}")
-    
+
     elif text == "🚀 Withdraw":
         cursor.execute("SELECT balance, payout_info FROM users WHERE user_id=?", (user_id,))
         row = cursor.fetchone()
@@ -123,44 +140,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "Payout Method 🏦":
         context.user_data['waiting_for'] = 'upi'
-        await update.message.reply_text("📝 Kripya apna **UPI ID** bhejein:")
+        await update.message.reply_text("📝 Kripya apna UPI ID bhejein:")
 
     elif text == "👫 Refer & Earn":
         bot_info = await context.bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={user_id}"
-        await update.message.reply_text(f"👥 Referral Link: {link}\n💸 Per refer: ₹12")
+        await update.message.reply_text(f"👥 Referral Link:\n{link}\n💸 Per refer: ₹12")
 
     elif text == "🎉 Gift Code":
-        await update.message.reply_text("🎁 Send code as: `/gift YOURCODE`", parse_mode='Markdown')
+        await update.message.reply_text("🎁 Send code as: /gift YOURCODE")
 
-    elif text in ["💰 Bet & Earn", "💸 Earn More 💸"]:
-        await update.message.reply_text(f"🚧 {text} is coming soon!")
+    elif text == "📞 Support":
+        await update.message.reply_text(
+            f"📞 Contact support:\nhttps://t.me/{SUPPORT_USERNAME}"
+        )
 
+    elif text in ["💸 Earn More 💸"]:
+        await update.message.reply_text("🚧 Coming soon!")
+
+# ================= GIFT =================
 async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not context.args: return
+    if not context.args:
+        return
+
     code = context.args[0].upper()
+
     if code in GIFT_CODES:
         cursor.execute("SELECT * FROM gift_used WHERE user_id=? AND code=?", (user_id, code))
         if not cursor.fetchone():
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (GIFT_CODES[code], user_id))
+            cursor.execute(
+                "UPDATE users SET balance = balance + ? WHERE user_id=?",
+                (GIFT_CODES[code], user_id)
+            )
             cursor.execute("INSERT INTO gift_used VALUES (?, ?)", (user_id, code))
             conn.commit()
             await update.message.reply_text(f"✅ ₹{GIFT_CODES[code]} Added!")
         else:
             await update.message.reply_text("❌ Code already used.")
+    else:
+        await update.message.reply_text("❌ Invalid gift code.")
 
 # ================= MAIN APP =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("gift", gift))
+    app.add_handler(CommandHandler("support", support))
     app.add_handler(CallbackQueryHandler(claim, pattern="claim"))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    
+
     print("🤖 Bot started...")
     app.run_polling()
 
 if __name__ == "__main__":
-    keep_alive() # Flask server for 24/7
+    keep_alive()
     main()
