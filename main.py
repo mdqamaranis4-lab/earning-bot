@@ -72,7 +72,7 @@ def main_menu(admin=False):
         ["🚀 Withdraw","Payout Method 🏦"],
         ["📤 Withdrawal Proof","🆘 Support"]
     ]
-    if admin: keyboard.append(["📊 Stats"])
+    if admin: keyboard.append(["⚙️ Admin Panel"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ================= FORCE JOIN =================
@@ -204,7 +204,9 @@ async def handle_msg(update,context):
         return
 
     if context.user_data.get("wait_withdraw"):
-        amount = int(text); context.user_data["wait_withdraw"]=False
+        try: amount = int(text)
+        except: await update.message.reply_text("❌ Enter valid number"); return
+        context.user_data["wait_withdraw"]=False
         if amount<MIN_WITHDRAW:
             await update.message.reply_text(f"❌ Minimum withdrawal ₹{MIN_WITHDRAW}")
             return
@@ -236,12 +238,19 @@ async def handle_msg(update,context):
         await update.message.reply_text(f"🔗 Referral:\n{link}\n💸 ₹24–₹30 per refer")
     elif text=="🆘 Support": await update.message.reply_text("📞 Contact: @flax_truth")
     elif text=="📤 Withdrawal Proof": await update.message.reply_text("📢 Proof Channel:\nhttps://t.me/withrawalupi")
-    elif admin and text=="📊 Stats":
-        cursor.execute("SELECT COUNT(*) FROM users"); total_users=cursor.fetchone()[0]
-        cursor.execute("SELECT SUM(balance) FROM users"); total_bal=cursor.fetchone()[0] or 0
-        cursor.execute("SELECT COUNT(*) FROM withdrawal_requests"); total_withdraw=cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM deposit_requests"); total_deposit=cursor.fetchone()[0]
-        await update.message.reply_text(f"📊 Bot Stats:\nTotal Users: {total_users}\nTotal Balance: ₹{total_bal}\nTotal Withdrawals Requests: {total_withdraw}\nTotal Deposit Requests: {total_deposit}")
+    elif admin and text=="⚙️ Admin Panel":
+        keyboard = [
+            [InlineKeyboardButton("📊 Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton("📩 Send Message", callback_data="admin_send_msg")]
+        ]
+        await update.message.reply_text("⚙️ Admin Panel", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif admin and context.user_data.get("admin_sending"):
+        try:
+            uid,msg = text.split("|",1); uid=int(uid)
+            await context.bot.send_message(uid,f"📢 Message from Admin:\n{msg}")
+            await update.message.reply_text(f"✅ Message sent to {uid}")
+        except: await update.message.reply_text("❌ Format wrong! Use: USER_ID|Message")
+        context.user_data["admin_sending"]=False
     else: await update.message.reply_text("❌ Ye command wrong hai!")
 
 # ================= CALLBACKS =================
@@ -291,36 +300,30 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await context.bot.send_message(uid,f"❌ Your deposit ₹25 rejected!")
         except: pass
         await query.message.reply_text(f"❌ Deposit rejected for user {uid}")
-
-# ================= ADMIN TO USER MESSAGE =================
-async def send_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Only admin can use this command")
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("Usage: /send USER_ID Your message here")
-        return
-    user_id = int(context.args[0])
-    msg = " ".join(context.args[1:])
-    try:
-        await context.bot.send_message(user_id, f"📢 Message from Admin:\n{msg}")
-        await update.message.reply_text(f"✅ Message sent to {user_id}")
-    except:
-        await update.message.reply_text("❌ Failed to send message (maybe user blocked bot)")
+    elif data=="admin_stats":
+        cursor.execute("SELECT COUNT(*) FROM users"); total_users=cursor.fetchone()[0]
+        cursor.execute("SELECT SUM(balance) FROM users"); total_bal=cursor.fetchone()[0] or 0
+        await query.message.edit_text(f"📊 Bot Stats:\nTotal Users: {total_users}\nTotal Balance: ₹{total_bal}")
+    elif data=="admin_send_msg":
+        context.user_data["admin_sending"]=True
+        await query.message.edit_text("✏️ Send message in format: USER_ID|Your message")
 
 # ================= MAIN =================
 def main():
     app=ApplicationBuilder().token(TOKEN).build()
+    # COMMANDS
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("daily",daily))
     app.add_handler(CommandHandler("gift",gift_code))
-    app.add_handler(CommandHandler("send",send_user))
+    # CALLBACK
     app.add_handler(CallbackQueryHandler(callback))
+    # TEXT MESSAGES
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND),handle_msg))
-    app.add_handler(MessageHandler(filters.COMMAND,lambda u,c:u.message.reply_text("❌ Ye command wrong hai!")))
+    # UNKNOWN COMMAND
+    app.add_handler(MessageHandler(filters.COMMAND, lambda u,c:u.message.reply_text("❌ Ye command wrong hai!")))
     print("🤖 Final BOT running with Admin Panel...")
+    keep_alive()
     app.run_polling()
 
 if __name__=="__main__":
-    keep_alive()
     main()
