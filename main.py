@@ -141,11 +141,13 @@ async def claim_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text(f"✅ Joining bonus ₹{join_bonus} added!", reply_markup=main_menu(admin=(user_id==ADMIN_ID)))
 
     if ref_id:
+        cursor.execute("SELECT username FROM users WHERE user_id=?",(user_id,))
+        user_ref_username = cursor.fetchone()[0] or "user"
         ref_bonus = random.randint(24,30)
         cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",(ref_bonus,ref_id))
         conn.commit()
         try:
-            await context.bot.send_message(ref_id,f"🎉 You received refer bonus! 💸 ₹{ref_bonus} added")
+            await context.bot.send_message(ref_id,f"🎉 You received refer bonus ₹{ref_bonus} from @{user_ref_username}")
         except: pass
 
 # ================= DAILY BONUS =================
@@ -202,11 +204,19 @@ async def handle_msg(update,context):
     user_id = update.effective_user.id
     cursor.execute("SELECT balance,payout_info,deposit_done FROM users WHERE user_id=?",(user_id,))
     bal, upi, dep = cursor.fetchone()
+    admin = user_id==ADMIN_ID
 
     if context.user_data.get("wait_upi"):
         cursor.execute("UPDATE users SET payout_info=?, deposit_done=0 WHERE user_id=?",(text,user_id))
         conn.commit(); context.user_data["wait_upi"]=False
-        await update.message.reply_text("✅ UPI submitted successfully", reply_markup=main_menu(admin=(user_id==ADMIN_ID))); return
+        # Notify admin deposit
+        kb = [[InlineKeyboardButton("✅ Approve",callback_data=f"d_approve_{user_id}"),
+               InlineKeyboardButton("❌ Reject",callback_data=f"d_reject_{user_id}")]]
+        await context.bot.send_message(ADMIN_ID,
+                                       f"💳 Deposit request ₹25 from @{update.effective_user.username} ({user_id})",
+                                       reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text("✅ UPI submitted successfully", reply_markup=main_menu(admin=admin))
+        return
 
     if context.user_data.get("wait_withdraw"):
         amount = int(text); context.user_data["wait_withdraw"]=False
@@ -217,18 +227,15 @@ async def handle_msg(update,context):
                        (user_id,amount,datetime.now().isoformat()))
         conn.commit()
         # Notify admin
-        try:
-            kb = [[InlineKeyboardButton("✅ Approve",callback_data=f"w_approve_{user_id}"),
-                   InlineKeyboardButton("❌ Reject",callback_data=f"w_reject_{user_id}")]]
-            await context.bot.send_message(ADMIN_ID,
-                                           f"💸 Withdrawal request ₹{amount} from @{update.effective_user.username} ({user_id})",
-                                           reply_markup=InlineKeyboardMarkup(kb))
-        except: pass
-        await update.message.reply_text(f"✅ Withdrawal request of ₹{amount} submitted!", reply_markup=main_menu(admin=(user_id==ADMIN_ID)))
+        kb = [[InlineKeyboardButton("✅ Approve",callback_data=f"w_approve_{user_id}"),
+               InlineKeyboardButton("❌ Reject",callback_data=f"w_reject_{user_id}")]]
+        await context.bot.send_message(ADMIN_ID,
+                                       f"💸 Withdrawal request ₹{amount} from @{update.effective_user.username} ({user_id})",
+                                       reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text(f"✅ Withdrawal request of ₹{amount} submitted!", reply_markup=main_menu(admin=admin))
         return
 
     # MENU OPTIONS
-    admin=user_id==ADMIN_ID
     if text=="🎉 Daily Bonus": await daily(update,context); return
     elif text=="🎁 Gift Code": await gift_code(update,context); return
     elif text=="🎁 Balance": await update.message.reply_text(f"💰 Balance: ₹{bal}")
@@ -251,7 +258,8 @@ async def handle_msg(update,context):
         cursor.execute("SELECT COUNT(*) FROM users"); total_users=cursor.fetchone()[0]
         cursor.execute("SELECT SUM(balance) FROM users"); total_bal=cursor.fetchone()[0] or 0
         cursor.execute("SELECT COUNT(*) FROM withdrawal_requests"); total_withdraw=cursor.fetchone()[0]
-        await update.message.reply_text(f"📊 Bot Stats:\nTotal Users: {total_users}\nTotal Balance: ₹{total_bal}\nTotal Withdrawals Requests: {total_withdraw}")
+        cursor.execute("SELECT COUNT(*) FROM deposit_requests"); total_deposit=cursor.fetchone()[0]
+        await update.message.reply_text(f"📊 Bot Stats:\nTotal Users: {total_users}\nTotal Balance: ₹{total_bal}\nTotal Withdrawals Requests: {total_withdraw}\nTotal Deposit Requests: {total_deposit}")
     else: await update.message.reply_text("❌ Ye command wrong hai!")
 
 # ================= CALLBACKS =================
@@ -260,9 +268,10 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data=query.data
     user_id=query.from_user.id
-    if data=="claim_join":
-        await claim_join(update,context); return
+
+    if data=="claim_join": await claim_join(update,context); return
     if user_id!=ADMIN_ID: return
+
     # Admin withdraw approve/reject
     if data.startswith("w_approve_"):
         uid=int(data.split("_")[-1])
@@ -272,8 +281,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             amount=row[0]
             cursor.execute("UPDATE withdrawal_requests SET status='approved' WHERE user_id=? AND status='pending'",(uid,))
             conn.commit()
-            try:
-                await context.bot.send_message(uid,f"✅ Your withdrawal of ₹{amount} is approved!")
+            try: await context.bot.send_message(uid,f"✅ Your withdrawal of ₹{amount} is approved!")
             except: pass
             await query.message.reply_text(f"✅ Withdrawal approved for user {uid}")
     elif data.startswith("w_reject_"):
@@ -285,10 +293,25 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("UPDATE withdrawal_requests SET status='rejected' WHERE user_id=? AND status='pending'",(uid,))
             cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",(amount,uid))
             conn.commit()
-            try:
-                await context.bot.send_message(uid,f"❌ Your withdrawal of ₹{amount} is rejected! Amount returned to wallet.")
+            try: await context.bot.send_message(uid,f"❌ Your withdrawal of ₹{amount} is rejected! Amount returned to wallet.")
             except: pass
             await query.message.reply_text(f"❌ Withdrawal rejected for user {uid}")
+
+    # Admin deposit approve/reject
+    elif data.startswith("d_approve_"):
+        uid=int(data.split("_")[-1])
+        cursor.execute("UPDATE users SET deposit_done=1 WHERE user_id=?",(uid,))
+        conn.commit()
+        try: await context.bot.send_message(uid,f"✅ Your deposit ₹25 approved!")
+        except: pass
+        await query.message.reply_text(f"✅ Deposit approved for user {uid}")
+    elif data.startswith("d_reject_"):
+        uid=int(data.split("_")[-1])
+        cursor.execute("UPDATE users SET deposit_done=0 WHERE user_id=?",(uid,))
+        conn.commit()
+        try: await context.bot.send_message(uid,f"❌ Your deposit ₹25 rejected!")
+        except: pass
+        await query.message.reply_text(f"❌ Deposit rejected for user {uid}")
 
 # ================= MAIN =================
 def main():
