@@ -158,15 +158,17 @@ async def spin(update, context):
     msg = await update.message.reply_text(f"🎡 Spin started! Cost ₹{SPIN_COST}\n💰 Balance: ₹{bal}")
 
     for _ in range(12):
-        await msg.edit_text(f"🎡 Spinning... {random.choice(SPIN_REWARDS)}")
+        fake_spin = random.choice(SPIN_REWARDS)
+        display = "Try Again" if fake_spin==0 else f"₹{fake_spin}"
+        await msg.edit_text(f"🎡 Spinning... {display}")
         await asyncio.sleep(0.2)
 
-    reward = random.choice(SPIN_REWARDS)
+    reward = random.choices(SPIN_REWARDS, weights=[2,1,4,6,6,6,1,1])[0]
     if reward>0:
         bal += reward
         cursor.execute("UPDATE users SET balance=? WHERE user_id=?",(bal,user_id))
         conn.commit()
-        await msg.edit_text(f"🎉 Spin cost: ₹{SPIN_COST}\n🎉 Congratulations! You won ₹{reward}\n💰 Your wallet balance: ₹{bal}")
+        await msg.edit_text(f"🎡 Spin cost: ₹{SPIN_COST}\n🎉 Congratulations! You won ₹{reward}\n💰 Your wallet balance: ₹{bal}")
     else:
         await msg.edit_text(f"🎡 Spin cost: ₹{SPIN_COST}\n😢 Try Again!\n💰 Your wallet balance: ₹{bal}")
 
