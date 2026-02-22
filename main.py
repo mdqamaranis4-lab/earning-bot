@@ -2,6 +2,7 @@ import sqlite3
 import os
 from flask import Flask
 from threading import Thread
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -12,7 +13,7 @@ from telegram.ext import (
     filters,
 )
 
-# ===== WEB SERVER FOR 24/7 HOSTING =====
+# ================= KEEP ALIVE =================
 app_flask = Flask('')
 
 @app_flask.route('/')
@@ -26,10 +27,10 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ===== CONFIGURATION =====
+# ================= CONFIG =================
 TOKEN = "8339268119:AAF7Kdn8kn2FlPh3QuukJhwA_pecTUCsZTc"
-
 SUPPORT_USERNAME = "eraxayann"
+ADMIN_ID = 123456789  # ⚠️ APNA TELEGRAM ID DALNA
 
 CHANNELS = [
     "https://t.me/+4phcd5DiWUBkMmY1",
@@ -42,21 +43,29 @@ GIFT_CODES = {
     "BONUS3": 3,
 }
 
-# ===== DATABASE SETUP =====
+# ================= DATABASE =================
 conn = sqlite3.connect("bot.db", check_same_thread=False)
 cursor = conn.cursor()
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     balance INTEGER DEFAULT 0,
     referred_by INTEGER,
-    payout_info TEXT
+    payout_info TEXT,
+    join_date TEXT
 )
 """)
-cursor.execute("CREATE TABLE IF NOT EXISTS gift_used (user_id INTEGER, code TEXT)")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS gift_used (
+    user_id INTEGER,
+    code TEXT
+)
+""")
 conn.commit()
 
-# ================= KEYBOARD =================
+# ================= MENU =================
 def main_menu_keyboard():
     keyboard = [
         ["🎉 Gift Code", "🎁 Balance"],
@@ -66,15 +75,18 @@ def main_menu_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# ================= HANDLERS =================
-
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ref_id = int(context.args[0]) if context.args and context.args[0].isdigit() else None
 
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     if not cursor.fetchone():
-        cursor.execute("INSERT INTO users (user_id, referred_by) VALUES (?, ?)", (user_id, ref_id))
+        cursor.execute(
+            "INSERT INTO users (user_id, referred_by, join_date) VALUES (?, ?, ?)",
+            (user_id, ref_id, datetime.now().strftime("%Y-%m-%d"))
+        )
+
         if ref_id and ref_id != user_id:
             cursor.execute("UPDATE users SET balance = balance + 12 WHERE user_id=?", (ref_id,))
         conn.commit()
@@ -84,26 +96,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("Join Channel 2", url=CHANNELS[1])],
         [InlineKeyboardButton("🔒 Claim", callback_data="claim")],
     ]
+
     await update.message.reply_text(
         "👑 Hey There! Welcome To Bot !!\n\n⚪️ Join Channels to Continue",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ================= CLAIM =================
 async def claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+
     cursor.execute("UPDATE users SET balance = balance + 2 WHERE user_id=?", (user_id,))
     conn.commit()
+
     await query.message.reply_text(
         "✅ Claim successful! Bonus ₹2 added.",
         reply_markup=main_menu_keyboard()
     )
 
-# ================= SUPPORT COMMAND =================
+# ================= SUPPORT =================
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"📞 Need help?\nContact support:\nhttps://t.me/{SUPPORT_USERNAME}"
+        f"📞 Need help?\nhttps://t.me/{SUPPORT_USERNAME}"
     )
 
 # ================= MESSAGE HANDLER =================
@@ -111,7 +127,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
 
-    # UPI Submission logic
+    # UPI save
     if context.user_data.get('waiting_for') == 'upi':
         cursor.execute("UPDATE users SET payout_info=? WHERE user_id=?", (text, user_id))
         conn.commit()
@@ -122,7 +138,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Menu Buttons logic
     if text == "🎁 Balance":
         cursor.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
         bal = cursor.fetchone()[0]
@@ -136,11 +151,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif row[0] < 120:
             await update.message.reply_text(f"❌ Min Withdraw ₹120. Current: ₹{row[0]}")
         else:
-            await update.message.reply_text("✅ Withdrawal request submitted to Admin!")
+            await update.message.reply_text("✅ Withdrawal request sent to admin!")
 
     elif text == "Payout Method 🏦":
         context.user_data['waiting_for'] = 'upi'
-        await update.message.reply_text("📝 Kripya apna UPI ID bhejein:")
+        await update.message.reply_text("📝 Apna UPI ID bhejein:")
 
     elif text == "👫 Refer & Earn":
         bot_info = await context.bot.get_me()
@@ -148,14 +163,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"👥 Referral Link:\n{link}\n💸 Per refer: ₹12")
 
     elif text == "🎉 Gift Code":
-        await update.message.reply_text("🎁 Send code as: /gift YOURCODE")
+        await update.message.reply_text("🎁 Send code: /gift CODE")
 
     elif text == "📞 Support":
-        await update.message.reply_text(
-            f"📞 Contact support:\nhttps://t.me/{SUPPORT_USERNAME}"
-        )
+        await update.message.reply_text(f"📞 Support:\nhttps://t.me/{SUPPORT_USERNAME}")
 
-    elif text in ["💸 Earn More 💸"]:
+    elif text == "💸 Earn More 💸":
         await update.message.reply_text("🚧 Coming soon!")
 
 # ================= GIFT =================
@@ -181,12 +194,31 @@ async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Invalid gift code.")
 
-# ================= MAIN APP =================
+# ================= STATS (ADMIN) =================
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total = cursor.fetchone()[0]
+
+    month = datetime.now().strftime("%Y-%m")
+    cursor.execute("SELECT COUNT(*) FROM users WHERE join_date LIKE ?", (f"{month}%",))
+    monthly = cursor.fetchone()[0]
+
+    await update.message.reply_text(
+        f"📊 Bot Statistics\n\n"
+        f"👥 Total Users: {total}\n"
+        f"📅 This Month: {monthly}"
+    )
+
+# ================= MAIN =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("gift", gift))
     app.add_handler(CommandHandler("support", support))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CallbackQueryHandler(claim, pattern="claim"))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
