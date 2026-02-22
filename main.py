@@ -1,6 +1,4 @@
-import sqlite3
-import random
-import asyncio
+import sqlite3, random, asyncio
 from datetime import date
 from flask import Flask
 from threading import Thread
@@ -21,7 +19,7 @@ SPIN_COST = 2
 SPIN_REWARDS = [2,4,6,10,0]  # 0 = Try Again
 MIN_WITHDRAW = 250
 DEPOSIT_CHECK = 25
-DAILY_BONUS = 3
+DAILY_BONUS = 7
 
 GIFT_CODES = {
     "FREE3": 3, "WELCOME3": 3, "BONUS3": 3,
@@ -56,11 +54,11 @@ conn.commit()
 # ================= MENU =================
 def main_menu():
     keyboard = [
-        ["🎁 Balance", "🎉 Gift Code"],
-        ["👫 Refer & Earn", "🎡 Spin"],
-        ["🚀 Withdraw", "Payout Method 🏦"],
-        ["📤 Withdrawal Proof", "🆘 Support"],
-        ["📊 Stats", "📢 Broadcast"]
+        ["🎁 Gift Code", "🎉 Daily Bonus"],
+        ["🎁 Balance", "👫 Refer & Earn"],
+        ["🎡 Spin", "🚀 Withdraw"],
+        ["Payout Method 🏦", "📤 Withdrawal Proof"],
+        ["🆘 Support", "📊 Stats"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -69,7 +67,8 @@ async def is_joined(user_id, context):
     for ch in CHANNELS:
         try:
             member = await context.bot.get_chat_member(ch, user_id)
-            if member.status not in ["member","administrator","creator"]: return False
+            if member.status not in ["member","administrator","creator"]:
+                return False
         except: return False
     return True
 
@@ -77,26 +76,40 @@ async def is_joined(user_id, context):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ref_id = int(context.args[0]) if context.args and context.args[0].isdigit() else None
+
+    # Add user to DB if not exists
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    if not cursor.fetchone():
+    user = cursor.fetchone()
+    if not user:
         cursor.execute("INSERT INTO users(user_id, referred_by) VALUES(?,?)",(user_id, ref_id))
         if ref_id and ref_id != user_id:
             ref_bonus = random.randint(24,30)
             cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?",(ref_bonus, ref_id))
         conn.commit()
+        joined_bonus_claimed = False
+    else:
+        joined_bonus_claimed = user[4] == 1
 
-    if not await is_joined(user_id, context):
+    # Force join check
+    joined_all = await is_joined(user_id, context)
+    if not joined_all:
         keyboard = [
             [InlineKeyboardButton("Join 1", url="https://t.me/eraxchannal"),
              InlineKeyboardButton("Join 2", url="https://t.me/rajaluckera7x")],
             [InlineKeyboardButton("Join 3", url="https://t.me/withrawalupi")],
-            [InlineKeyboardButton("✅ Claim", callback_data="claim_join")]
+            [InlineKeyboardButton("✅ Claim Bonus", callback_data="claim_join")]
         ]
-        await update.message.reply_text("⚠️ Pehle sabhi channels join karo",
-            reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_text(
+            "⚠️ Pehle sabhi channels join karo phir bonus claim kar paoge!",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
-    await update.message.reply_text("👑 Welcome to Bot!", reply_markup=main_menu())
+    if joined_bonus_claimed:
+        await update.message.reply_text("❌ You already claimed this bonus", reply_markup=main_menu())
+    else:
+        keyboard = [[InlineKeyboardButton("✅ Claim Join Bonus", callback_data="claim_join")]]
+        await update.message.reply_text("🎉 Channels joined! Claim your bonus:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ================= CLAIM JOIN BONUS =================
 async def claim_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,10 +118,10 @@ async def claim_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     cursor.execute("SELECT joined_bonus FROM users WHERE user_id=?",(user_id,))
     if cursor.fetchone()[0]==1:
-        await query.message.reply_text("❌ Join bonus already claim ho chuka", reply_markup=main_menu())
+        await query.message.reply_text("❌ You already claimed this bonus", reply_markup=main_menu())
         return
     join_bonus = random.randint(34,45)
-    cursor.execute("UPDATE users SET balance = balance + ?, joined_bonus = 1 WHERE user_id=?",(join_bonus,user_id))
+    cursor.execute("UPDATE users SET balance=?, joined_bonus=1 WHERE user_id=?",(join_bonus,user_id))
     conn.commit()
     await query.message.reply_text(f"✅ Join bonus ₹{join_bonus} added!", reply_markup=main_menu())
 
@@ -118,18 +131,21 @@ async def daily(update, context):
     today = date.today().isoformat()
     cursor.execute("SELECT last_daily, balance FROM users WHERE user_id=?",(user_id,))
     last, bal = cursor.fetchone()
-    if last==today: await update.message.reply_text("❌ Aaj ka daily bonus already claim ho chuka"); return
+    if last==today:
+        await update.message.reply_text("❌ Aaj ka daily bonus already claim ho chuka")
+        return
     bal += DAILY_BONUS
-    cursor.execute("UPDATE users SET balance=?, last_daily=? WHERE user_id=?",(bal,today,user_id))
+    cursor.execute("UPDATE users SET balance=?, last_daily=? WHERE user_id=?",(bal, today, user_id))
     conn.commit()
-    await update.message.reply_text(f"✅ ₹{DAILY_BONUS} Daily Bonus added! Balance: ₹{bal}")
+    await update.message.reply_text(f"✅ ₹{DAILY_BONUS} Daily Bonus added!\n💰 Balance: ₹{bal}")
 
-# ================= SPIN WHEEL =================
+# ================= SPIN =================
 async def spin(update, context):
     user_id = update.effective_user.id
     cursor.execute("SELECT balance FROM users WHERE user_id=?",(user_id,))
     bal = cursor.fetchone()[0]
-    if bal<SPIN_COST: await update.message.reply_text("❌ Spin ke liye ₹2 chahiye"); return
+    if bal<SPIN_COST:
+        await update.message.reply_text("❌ Spin ke liye ₹2 chahiye"); return
     bal -= SPIN_COST
     reward = random.choice(SPIN_REWARDS)
     if reward>0: bal += reward
@@ -141,12 +157,11 @@ async def spin(update, context):
         await asyncio.sleep(0.2)
     await msg.edit_text(f"🎉 You won ₹{reward}!" if reward>0 else "😢 Try Again!" + f"\n💰 Balance: ₹{bal}")
 
-# ================= HIDDEN ADMIN GIFT =================
+# ================= GIFT CODE =================
 async def gift_code(update, context):
     user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text("❌ Ye command sirf admin ke liye hai")
-        return
+    if user_id!=ADMIN_ID:
+        await update.message.reply_text("❌ Ye command sirf admin ke liye hai"); return
     available_codes = []
     for code, amt in GIFT_CODES.items():
         cursor.execute("SELECT COUNT(*) FROM gift_used WHERE code=?",(code,))
@@ -157,14 +172,14 @@ async def gift_code(update, context):
     await update.message.reply_text(msg)
 
 async def give_gift(update, context):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id!=ADMIN_ID: return
     if len(context.args)!=2: await update.message.reply_text("Usage: /give_gift USERID CODE"); return
     user_id = int(context.args[0]); code = context.args[1].upper()
     if code not in GIFT_CODES: await update.message.reply_text("❌ Invalid code"); return
     cursor.execute("SELECT * FROM gift_used WHERE user_id=? AND code=?",(user_id,code))
     if cursor.fetchone(): await update.message.reply_text("❌ User already received this code"); return
     cursor.execute("SELECT balance FROM users WHERE user_id=?",(user_id,))
-    bal = cursor.fetchone()[0] + GIFT_CODES[code]
+    bal = cursor.fetchone()[0]+GIFT_CODES[code]
     cursor.execute("UPDATE users SET balance=? WHERE user_id=?",(bal,user_id))
     cursor.execute("INSERT INTO gift_used(user_id, code) VALUES(?,?)",(user_id, code))
     conn.commit()
@@ -185,22 +200,18 @@ async def handle_msg(update, context):
         await update.message.reply_text(f"✅ UPI saved & Deposit ₹{DEPOSIT_CHECK} approved", reply_markup=main_menu()); return
 
     if context.user_data.get("wait_withdraw"):
-        amount = int(text)
-        context.user_data["wait_withdraw"] = False
+        amount = int(text); context.user_data["wait_withdraw"]=False
         if bal<amount: await update.message.reply_text("❌ Insufficient balance"); return
-        bal -= amount
-        cursor.execute("UPDATE users SET balance=? WHERE user_id=?",(bal,user_id))
-        conn.commit()
-        # Admin notification with full details
+        bal-=amount
+        cursor.execute("UPDATE users SET balance=? WHERE user_id=?",(bal,user_id)); conn.commit()
         user_name = update.effective_user.full_name
         username = f"@{update.effective_user.username}" if update.effective_user.username else "No username"
-        await context.bot.send_message(
-            ADMIN_ID,
-            f"💸 Withdraw Request\nUser ID: {user_id}\nName: {user_name}\nUsername: {username}\nRequested Amount: ₹{amount}\nRemaining Balance: ₹{bal}"
-        )
+        await context.bot.send_message(ADMIN_ID,f"💸 Withdraw Request\nUser ID: {user_id}\nName: {user_name}\nUsername: {username}\nRequested Amount: ₹{amount}\nRemaining Balance: ₹{bal}")
         await update.message.reply_text("✅ Withdrawal submitted! Admin notified.", reply_markup=main_menu()); return
 
-    if text=="🎁 Balance": await update.message.reply_text(f"💰 Balance: ₹{bal}")
+    if text=="🎉 Daily Bonus": await daily(update, context); return
+    elif text=="🎁 Gift Code": await update.message.reply_text("🎁 Send code as: /give_gift USERID CODE (Admin Only)"); return
+    elif text=="🎁 Balance": await update.message.reply_text(f"💰 Balance: ₹{bal}")
     elif text=="Payout Method 🏦": context.user_data["wait_upi"]=True; await update.message.reply_text("📥 Apna UPI ID bhejo")
     elif text=="🚀 Withdraw":
         if not upi: await update.message.reply_text("❌ Pehle payout set karo")
@@ -214,18 +225,17 @@ async def handle_msg(update, context):
     elif text=="🆘 Support": await update.message.reply_text("📞 Contact: @eraxayann")
     elif text=="📤 Withdrawal Proof": await update.message.reply_text("📢 Proof Channel:\nhttps://t.me/withrawalupi")
     elif text=="📊 Stats" and user_id==ADMIN_ID:
-        cursor.execute("SELECT COUNT(*) FROM users"); total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users"); total=cursor.fetchone()[0]
         await update.message.reply_text(f"👥 Total Users: {total}")
     elif text.startswith("/broadcast") and user_id==ADMIN_ID:
-        msg = text.replace("/broadcast ",""); cursor.execute("SELECT user_id FROM users")
+        msg=text.replace("/broadcast ",""); cursor.execute("SELECT user_id FROM users")
         for uid in cursor.fetchall():
             try: await context.bot.send_message(uid[0], msg)
             except: continue
         await update.message.reply_text("✅ Broadcast sent")
-    elif text=="/daily": await daily(update, context)
-    else: await update.message.reply_text("❌ Ye command wrong hai!")  # Unknown command reply
+    else: await update.message.reply_text("❌ Ye command wrong hai!")
 
-# ================== MAIN =================
+# ================= MAIN =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
