@@ -227,12 +227,20 @@ async def handle_msg(update,context):
         await update.message.reply_text(f"✅ Withdrawal request of ₹{amount} submitted!", reply_markup=main_menu(admin=admin))
         return
 
-    # MENU OPTIONS
+    # ================= MENU =================
     if text=="🎉 Daily Bonus": await daily(update,context); return
     elif text=="🎁 Gift Code": await gift_code(update,context); return
     elif text=="🎁 Balance": await update.message.reply_text(f"💰 Balance: ₹{bal}")
     elif text=="Payout Method 🏦": context.user_data["wait_upi"]=True; await update.message.reply_text("📥 Apna UPI ID bhejo")
-    elif text=="🚀 Withdraw": context.user_data["wait_withdraw"]=True; await update.message.reply_text("💸 Kitna withdraw karna hai?")
+    elif text=="🚀 Withdraw":
+        if bal < MIN_WITHDRAW:
+            await update.message.reply_text(f"❌ Your balance is low. Minimum withdrawal is ₹{MIN_WITHDRAW}", reply_markup=main_menu(admin=admin))
+        else:
+            if dep==0:
+                await update.message.reply_text(f"💳 Withdraw se pehle ₹25 deposit karein\nUPI: {UPI_ID}", reply_markup=main_menu(admin=admin))
+            else:
+                context.user_data["wait_withdraw"]=True
+                await update.message.reply_text("💸 Kitna withdraw karna hai?", reply_markup=main_menu(admin=admin))
     elif text=="👫 Refer & Earn":
         bot_info = await context.bot.get_me(); link = f"https://t.me/{bot_info.username}?start={user_id}"
         await update.message.reply_text(f"🔗 Referral:\n{link}\n💸 ₹24–₹30 per refer")
