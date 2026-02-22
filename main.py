@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 
 # ================= CONFIG =================
 TOKEN = "8339268119:AAF7Kdn8kn2FlPh3QuukJhwA_pecTUCsZTc"
-UPI_ID = "babu.440@superyes"
+UPI_ID = "@babu.440@superyes"
 ADMIN_ID = 7499239556
 
 CHANNELS = ["@eraxchannal", "@rajaluckera7x", "@withrawalupi"]
@@ -209,12 +209,11 @@ async def handle_msg(update,context):
     if context.user_data.get("wait_upi"):
         cursor.execute("UPDATE users SET payout_info=?, deposit_done=0 WHERE user_id=?",(text,user_id))
         conn.commit(); context.user_data["wait_upi"]=False
-        # Notify admin deposit
         kb = [[InlineKeyboardButton("✅ Approve",callback_data=f"d_approve_{user_id}"),
                InlineKeyboardButton("❌ Reject",callback_data=f"d_reject_{user_id}")]]
         await context.bot.send_message(ADMIN_ID,
-                                       f"💳 Deposit request ₹25 from @{update.effective_user.username} ({user_id})",
-                                       reply_markup=InlineKeyboardMarkup(kb))
+            f"💳 Deposit request ₹25 from @{update.effective_user.username} (ID: {user_id})\nUPI: {text}",
+            reply_markup=InlineKeyboardMarkup(kb))
         await update.message.reply_text("✅ UPI submitted successfully", reply_markup=main_menu(admin=admin))
         return
 
@@ -226,12 +225,12 @@ async def handle_msg(update,context):
         cursor.execute("INSERT INTO withdrawal_requests(user_id,amount,created_at) VALUES(?,?,?)",
                        (user_id,amount,datetime.now().isoformat()))
         conn.commit()
-        # Notify admin
+        # Notify admin with UPI
         kb = [[InlineKeyboardButton("✅ Approve",callback_data=f"w_approve_{user_id}"),
                InlineKeyboardButton("❌ Reject",callback_data=f"w_reject_{user_id}")]]
         await context.bot.send_message(ADMIN_ID,
-                                       f"💸 Withdrawal request ₹{amount} from @{update.effective_user.username} ({user_id})",
-                                       reply_markup=InlineKeyboardMarkup(kb))
+            f"💸 Withdrawal request ₹{amount} from @{update.effective_user.username} (ID: {user_id})\nUPI: {upi}",
+            reply_markup=InlineKeyboardMarkup(kb))
         await update.message.reply_text(f"✅ Withdrawal request of ₹{amount} submitted!", reply_markup=main_menu(admin=admin))
         return
 
