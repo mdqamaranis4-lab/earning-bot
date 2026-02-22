@@ -13,10 +13,12 @@ CHANNELS = ["@eraxchannal", "@rajaluckera7x", "@withrawalupi"]
 MIN_WITHDRAW = 250
 DAILY_BONUS = 7
 
+# Gift codes: 3₹, 5₹, 10₹ normal + BIG200 ₹200 limited to 5 users
 GIFT_CODES = {
     "FREE3": 3, "WELCOME3": 3, "BONUS3": 3,
     "FIVE1": 5, "FIVE2": 5, "FIVE3": 5,
-    "TEN1": 10, "TEN2": 10
+    "TEN1": 10, "TEN2": 10,
+    "BIG200": 200
 }
 
 # ================= FLASK 24/7 =================
@@ -153,7 +155,10 @@ async def gift_code(update, context):
 
     # Limit check
     amt = GIFT_CODES[code]
-    limit = 200 if amt==3 else 50
+    if amt==200: limit = 5
+    elif amt==3: limit = 200
+    else: limit = 50
+
     cursor.execute("SELECT COUNT(*) FROM gift_used WHERE code=?",(code,))
     used = cursor.fetchone()[0]
     if used >= limit:
